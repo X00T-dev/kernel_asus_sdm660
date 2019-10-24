@@ -1238,24 +1238,6 @@ fast_isolate_around(struct compact_control *cc, unsigned long pfn, unsigned long
 		set_pageblock_skip(page);
 }
 
-/* Search orders in round-robin fashion */
-static int next_search_order(struct compact_control *cc, int order)
-{
-	order--;
-	if (order < 0)
-		order = cc->order - 1;
-
-	/* Search wrapped around? */
-	if (order == cc->search_order) {
-		cc->search_order--;
-		if (cc->search_order < 0)
-			cc->search_order = cc->order - 1;
-		return -1;
-	}
-
-	return order;
-}
-
 static unsigned long
 fast_isolate_freepages(struct compact_control *cc)
 {
@@ -1292,15 +1274,9 @@ fast_isolate_freepages(struct compact_control *cc)
 	if (WARN_ON_ONCE(min_pfn > low_pfn))
 		low_pfn = min_pfn;
 
-	/*
-	 * Search starts from the last successful isolation order or the next
-	 * order to search after a previous failure
-	 */
-	cc->search_order = min_t(unsigned int, cc->order - 1, cc->search_order);
-
-	for (order = cc->search_order;
-	     !page && order >= 0;
-	     order = next_search_order(cc, order)) {
+	for (order = cc->order - 1;
+	     order >= 0 && !page;
+	     order--) {
 		struct free_area *area = &cc->zone->free_area[order];
 		struct list_head *freelist;
 		struct page *freepage;
@@ -1324,7 +1300,6 @@ fast_isolate_freepages(struct compact_control *cc)
 
 			if (pfn >= low_pfn) {
 				cc->fast_search_fail = 0;
-				cc->search_order = order;
 				page = freepage;
 				break;
 			}
@@ -2261,7 +2236,6 @@ static enum compact_result compact_zone_order(struct zone *zone, int order,
 	enum compact_result ret;
 	struct compact_control cc = {
 		.order = order,
-		.search_order = order,
 		.gfp_mask = gfp_mask,
 		.zone = zone,
 		.mode = (prio == COMPACT_PRIO_ASYNC) ?
@@ -2493,7 +2467,6 @@ static void kcompactd_do_work(pg_data_t *pgdat)
 	struct zone *zone;
 	struct compact_control cc = {
 		.order = pgdat->kcompactd_max_order,
-		.search_order = pgdat->kcompactd_max_order,
 		.classzone_idx = pgdat->kcompactd_classzone_idx,
 		.mode = MIGRATE_SYNC_LIGHT,
 		.ignore_skip_hint = false,
